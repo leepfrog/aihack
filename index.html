@@ -24,6 +24,8 @@
   --s1: #257de0; --s2: #f47230; --s3: #00b894; --s4: #f2a600;
   --s5: #ee7fac; --s6: #008a17; --s7: #6a4ce2; --s8: #ec4647;
   --other: #9aa1ab;
+  /* sequential (one hue, light→dark) for the state map; q0 = no spending */
+  --q0: #eceff3; --q1: #cce3fd; --q2: #9dc8f7; --q3: #6aabf1; --q4: #338ced; --q5: #1b64be;
   --font-display: "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   color-scheme: light;
@@ -35,6 +37,7 @@
     --ring: rgba(255,255,255,0.10); --shadow: none;
     --s1: #338ced; --s2: #e76624; --s3: #00a888; --s4: #d28e05;
     --s5: #e24d8b; --s6: #0aac23; --s7: #9887ef; --s8: #eb6263; --other: #6b727c;
+    --q0: #23272e; --q1: #0e3d7e; --q2: #1757ac; --q3: #257de0; --q4: #519ced; --q5: #9dc8f7;
     color-scheme: dark;
   }
 }
@@ -44,6 +47,7 @@
   --ring: rgba(255,255,255,0.10); --shadow: none;
   --s1: #338ced; --s2: #e76624; --s3: #00a888; --s4: #d28e05;
   --s5: #e24d8b; --s6: #0aac23; --s7: #9887ef; --s8: #eb6263; --other: #6b727c;
+  --q0: #23272e; --q1: #0e3d7e; --q2: #1757ac; --q3: #257de0; --q4: #519ced; --q5: #9dc8f7;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -176,10 +180,31 @@ dialog::backdrop { background: rgba(10,12,16,0.45); }
 .tip .row { display: flex; justify-content: space-between; gap: 12px; color: var(--ink-2); }
 .tip .row b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
 
+/* map */
+.map-grid-2 { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px 24px; align-items: start; }
+.map svg path.st { stroke: var(--surface); stroke-width: 1; stroke-linejoin: round; cursor: pointer; }
+.map svg path.st:hover { stroke: var(--ink); stroke-width: 1.5; }
+.map svg path.st.sel { stroke: var(--ink); stroke-width: 2; }
+.map svg circle.city { cursor: pointer; vector-effect: non-scaling-stroke; }
+.map svg path.st { vector-effect: non-scaling-stroke; }
+.chart.map svg { cursor: grab; overflow: hidden; }
+.map svg:active { cursor: grabbing; }
+.zoom-ctl { position: absolute; top: 0; right: 0; display: flex; gap: 4px; }
+.zoom-ctl button { min-width: 30px; height: 30px; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; cursor: pointer; font-size: 15px; line-height: 1; padding: 0 8px; }
+.zoom-ctl button:hover { border-color: var(--axis); }
+.map svg .lbl { font-weight: 600; fill: var(--ink); paint-order: stroke; stroke: var(--surface); stroke-linejoin: round; pointer-events: none; }
+.scale { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); flex-wrap: wrap; margin-top: 8px; }
+.scale .steps { display: flex; gap: 2px; }
+.scale .steps i { width: 28px; height: 10px; display: block; }
+.scale .steps i:first-child { border-radius: 3px 0 0 3px; } .scale .steps i:last-child { border-radius: 0 3px 3px 0; }
+.coverage { font-size: 13px; color: var(--ink-2); margin: 0 0 10px; }
+.places { display: flex; flex-direction: column; gap: 10px; }
+.places .divider { border-top: 1px solid var(--line); margin: 2px 0; }
+
 .foot { font-size: 12px; color: var(--ink-2); text-align: center; }
 
 @media (max-width: 860px) {
-  .grid-2 { grid-template-columns: minmax(0, 1fr); }
+  .grid-2, .map-grid-2 { grid-template-columns: minmax(0, 1fr); }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 420px) {
@@ -248,6 +273,29 @@ dialog::backdrop { background: rgba(10,12,16,0.45); }
 
   <section class="panel">
     <div class="panel-head">
+      <div>
+        <h2>Where you were</h2>
+        <span class="sub">Spending by the place you made the purchase. Click a state or city to filter everything to it.</span>
+      </div>
+      <div class="seg" id="map-mode" role="group" aria-label="Map view">
+        <button type="button" data-mode="city">Cities</button>
+        <button type="button" data-mode="state">States</button>
+      </div>
+    </div>
+    <div class="map-grid-2">
+      <div>
+        <div class="chart map" id="map"></div>
+        <div class="scale" id="map-scale"></div>
+      </div>
+      <div>
+        <p class="coverage" id="map-coverage"></p>
+        <div class="places" id="places"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
       <h2>Month by month</h2>
       <span class="sub">Click a month to focus on it.</span>
     </div>
@@ -267,7 +315,8 @@ dialog::backdrop { background: rgba(10,12,16,0.45); }
     <div class="more" id="more"></div>
   </section>
 
-  <p class="foot">Spending only: refunds, income and card payments are left out. Category guesses come from merchant names and can be corrected in the table.</p>
+  <p class="foot">Spending only: refunds, income and card payments are left out. Category guesses come from merchant names and can be corrected in the table.<br>
+  Locations come from your file's city/state columns or the "CITY ST" text at the end of a description. State shapes: US Census Bureau via us-atlas. City locations: GeoNames (CC BY 4.0).</p>
 </div>
 
 <dialog id="import-dlg">
@@ -282,6 +331,8 @@ dialog::backdrop { background: rgba(10,12,16,0.45); }
       <label for="map-amount">Amount</label><select id="map-amount"></select>
       <label for="map-debit">or Debit column</label><select id="map-debit"></select>
       <label for="map-category">Category (optional)</label><select id="map-category"></select>
+      <label for="map-city">City / location (optional)</label><select id="map-city"></select>
+      <label for="map-state">State (optional)</label><select id="map-state"></select>
       <label for="map-sign">Spending shows as</label>
       <select id="map-sign">
         <option value="neg">Negative numbers (−42.10)</option>
@@ -306,6 +357,7 @@ dialog::backdrop { background: rgba(10,12,16,0.45); }
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="geo-data.js"></script>
 <script>
 (() => {
 "use strict";
@@ -323,13 +375,13 @@ const RULES = [
   ["Housing", /\brent\b|mortgage|property m|\bhoa\b|apartments?\b|landlord/],
   ["Utilities", /pg&e|\bpge\b|electric|edison|water|sewer|comcast|xfinity|verizon|at&t|t-mobile|tmobile|spectrum|internet|utilit|power co/],
   ["Subscriptions", /netflix|spotify|hulu|disney|hbo|max\.com|youtube|apple\.com|icloud|audible|patreon|nytimes|new york times|adobe|dropbox|openai|anthropic|github|substack/],
-  ["Groceries", /trader joe|safeway|whole foods|wholefds|kroger|aldi|costco|sprouts|wegmans|publix|grocer|supermarket|h-e-b|\bheb\b|albertsons|instacart|food lion|giant|market/],
-  ["Dining", /restaurant|cafe|café|coffee|starbucks|chipotle|mcdonald|burger|pizza|taco|sushi|ramen|doordash|uber ?eats|grubhub|postmates|bakery|\bbar\b|brew|grill|kitchen|deli|diner|bistro|sweetgreen|panera|dunkin|noodle|bbq|eatery|^sq \*|^tst\*/],
-  ["Transport", /\buber\b|lyft|shell|chevron|exxon|mobil|arco|\bbp\b|\bgas\b|fuel|parking|clipper|transit|\bmetro\b|\bbart\b|\btoll|fastrak|dmv|supercharger|car wash|jiffy/],
+  ["Groceries", /trader joe|safeway|whole foods|wholefds|kroger|aldi|costco|sprouts|wegmans|publix|grocer|supermarket|h-e-b|\bheb\b|albertsons|instacart|food lion|giant|market|berkeley bowl/],
+  ["Dining", /restaurant|cafe|café|coffee|starbucks|chipotle|mcdonald|burger|pizza|taco|sushi|ramen|doordash|uber ?eats|grubhub|postmates|bakery|\bbar\b|brew|grill|kitchen|deli|diner|bistro|sweetgreen|panera|dunkin|noodle|bbq|eatery|donut|chowder|biscuit|^sq \*|^tst\*/],
+  ["Transport", /\buber\b|lyft|shell|chevron|exxon|mobil|arco|\bbp\b|\bgas\b|fuel|parking|clipper|transit|\bmetro\b|\bbart\b|\btoll|fastrak|\bmta\b|nyct|dmv|supercharger|car wash|jiffy/],
   ["Travel", /airline|airways|\bdelta\b|united air|southwest|jetblue|alaska air|american air|hotel|marriott|hilton|hyatt|airbnb|vrbo|expedia|booking\.com|amtrak/],
   ["Health", /pharmacy|\bcvs\b|walgreens|rite aid|dental|dentist|medical|clinic|hospital|doctor|optom|fitness|\bgym\b|crunch|equinox|kaiser/],
   ["Entertainment", /cinema|\bamc\b|regal|theat|ticketmaster|stubhub|steam|playstation|xbox|nintendo|concert|museum|bowling|eventbrite/],
-  ["Shopping", /amazon|amzn|target|walmart|best buy|ikea|etsy|ebay|home depot|lowe'?s|macy|nordstrom|old navy|\bgap\b|uniqlo|rei\b|apple store|wayfair/],
+  ["Shopping", /amazon|amzn|target|walmart|best buy|ikea|etsy|ebay|home depot|lowe'?s|macy|nordstrom|old navy|\bgap\b|uniqlo|rei\b|apple store|wayfair|books\b|design store|abc stores/],
   ["Personal", /salon|barber|\bspa\b|laundry|dry clean|nail/],
 ];
 const NEUTRAL_CATS = new Set(["Transfers", "Uncategorized"]);
@@ -357,11 +409,78 @@ function cleanMerchant(desc) {
        .replace(/\s{2,}/g, " ")
        .trim();
   const words = s.split(" ").filter(Boolean);
-  // drop a trailing US state code
-  if (words.length > 1 && /^[A-Z]{2}$/.test(words[words.length - 1])) words.pop();
   s = words.slice(0, 3).join(" ");
   return s ? titleCase(s) : titleCase(desc.slice(0, 24));
 }
+
+/* ---------- locations ---------- */
+const GEO = window.WIW_GEO || { width: 975, height: 610, states: [], cities: "" };
+const STATE_NAMES = new Map(GEO.states.map(s => [s.code, s.name]));
+const STATE_BY_NAME = new Map(GEO.states.map(s => [s.name.toUpperCase(), s.code]));
+const normPlace = s => s.normalize("NFD").replace(/[\u0300-\u036f\u02bb]/g, "").toUpperCase().replace(/[.'’]/g, "").replace(/\bSAINT\b/g, "ST").replace(/\bFORT\b/g, "FT").replace(/\bMOUNT\b/g, "MT").replace(/[^A-Z ]/g, " ").replace(/\s+/g, " ").trim();
+const CITY = new Map();          // "NORMNAME|ST" -> { name, st, x, y }
+const CITIES_BY_STATE = new Map(); // ST -> [{ norm, ... }] largest first
+for (const row of GEO.cities ? GEO.cities.split(";") : []) {
+  const [name, st, x, y] = row.split("|");
+  const c = { name, st, x: +x, y: +y, norm: normPlace(name) };
+  const add = k => { if (!CITY.has(k + "|" + st)) CITY.set(k + "|" + st, c); };
+  add(c.norm);
+  if (c.norm.endsWith(" CITY")) add(c.norm.slice(0, -5)); // "New York City" -> "NEW YORK"
+  if (!CITIES_BY_STATE.has(st)) CITIES_BY_STATE.set(st, []);
+  CITIES_BY_STATE.get(st).push(c);
+}
+function findCity(words, st) {
+  const s = normPlace(words);
+  if (!s) return null;
+  const hit = CITY.get(s + "|" + st);
+  if (hit) return hit;
+  // banks often cut city names short ("SAN FRANCISC CA"); match a prefix of 6+ letters
+  if (s.length >= 6) return (CITIES_BY_STATE.get(st) || []).find(c => c.norm.startsWith(s)) || null;
+  return null;
+}
+const AMBIGUOUS_ST = new Set(["CO", "IN", "ME", "OR", "OK", "DE", "MA", "PA", "HI", "ID", "OH", "AL", "LA", "MO", "GA", "WA"]);
+const ONLINE_RE =/\.com\b|\.net\b|www\.|https?:|amzn|online|internet|\bweb\b|digital|subscription|recurring/i;
+/* returns { loc: {st, city, x, y} | {online:true} | null, rest: description without the place } */
+function parseLocation(desc, cityCol, stateCol) {
+  let st = "", cityName = "", rest = desc, fromDesc = false;
+  if (cityCol || stateCol) {
+    const raw = `${cityCol || ""} ${stateCol || ""}`.replace(/[\r\n,]+/g, " ").trim();
+    const m = raw.match(/^(.*?)\s*\b([A-Za-z]{2})\b(?:\s+\d{5}(?:-\d{4})?)?\s*(?:US|USA)?$/);
+    const full = stateCol && STATE_BY_NAME.get(String(stateCol).trim().toUpperCase());
+    if (full) { st = full; cityName = String(cityCol || "").trim(); }
+    else if (m && STATE_NAMES.has(m[2].toUpperCase())) { st = m[2].toUpperCase(); cityName = m[1]; }
+  }
+  if (!st) {
+    const s = desc.trim().replace(/\s+(US|USA)$/i, "");
+    const m = s.match(/^(.*\S)[\s,]+([A-Z]{2})$/);
+    if (m && STATE_NAMES.has(m[2]) && /[A-Za-z]/.test(m[1])) {
+      st = m[2];
+      fromDesc = true;
+      const before = m[1];
+      // fixed-width exports put the city after a run of spaces
+      const chunks = before.split(/\s{2,}/);
+      if (chunks.length > 1) { cityName = chunks.pop(); rest = chunks.join(" "); }
+      else {
+        const words = before.split(/\s+/);
+        rest = before;
+        for (let n = Math.min(3, words.length - 1); n >= 1; n--) {
+          const cand = words.slice(-n).join(" ");
+          if (findCity(cand, st)) { cityName = cand; rest = words.slice(0, -n).join(" "); break; }
+        }
+      }
+    }
+  }
+  if (st) {
+    const c = cityName ? findCity(cityName, st) : null;
+    if (c) return { loc: { st, city: c.name, x: c.x, y: c.y }, rest };
+    if (ONLINE_RE.test(desc) && !cityName) return { loc: { online: true }, rest };
+    // a trailing "CO", "IN", "OR", "ME"… with no recognisable city is more likely part of the name ("PIZZA CO")
+    if (fromDesc && !cityName && AMBIGUOUS_ST.has(st)) return { loc: null, rest: desc };
+    return { loc: { st, city: "" }, rest };
+  }
+  return { loc: ONLINE_RE.test(desc) ? { online: true } : null, rest };
+}
+const placeKey = l => !l ? "none" : l.online ? "online" : l.city ? `${l.city}, ${l.st}` : `${l.st}`;
 
 /* ---------- parsing ---------- */
 function parseAmount(v) {
@@ -405,6 +524,8 @@ function guessColumns(fields, rows) {
   const amount = find(/^amount$/, /amount|value/);
   const debit = find(/^debit|withdraw|money out|spent|outflow/);
   const category = find(/^category$/, /category/);
+  const city = find(/^city\/state$/, /^city$/, /city|town|location|address/);
+  const stateCol = find(/^state$/, /^(state|province|region)\b/);
   // sign: look at the amount column
   let sign = "neg";
   if (amount) {
@@ -412,7 +533,7 @@ function guessColumns(fields, rows) {
     const neg = vals.filter(n => n < 0).length;
     sign = neg >= vals.length / 2 ? "neg" : "pos";
   }
-  return { date, desc, amount: debit && !amount ? "" : amount, debit: amount ? "" : debit, category, sign };
+  return { date, desc, amount: debit && !amount ? "" : amount, debit: amount ? "" : debit, category, city, state: stateCol === city ? "" : stateCol, sign };
 }
 
 function rowsToTxns(rows, map, source) {
@@ -434,11 +555,12 @@ function rowsToTxns(rows, map, source) {
     if (!date || !desc) { skipped++; continue; }
     if (amt <= 0) continue; // refunds, income, payments
     const raw = map.category ? String(r[map.category] ?? "").trim() : "";
-    const merchant = cleanMerchant(desc);
+    const { loc, rest } = parseLocation(desc, map.city ? r[map.city] : "", map.state ? r[map.state] : "");
+    const merchant = cleanMerchant(rest || desc);
     let category = guessCategory(desc);
     if (category === "Uncategorized" && raw) category = titleCase(raw);
     if (raw && /payment|transfer/i.test(raw)) category = "Transfers";
-    out.push({ date: iso(date), desc, merchant, amount: Math.round(amt * 100) / 100, guess: category, source });
+    out.push({ date: iso(date), desc, merchant, amount: Math.round(amt * 100) / 100, guess: category, source, loc });
   }
   return { txns: out, skipped };
 }
@@ -456,36 +578,54 @@ function sampleRows() {
     const y = end.getFullYear(), m = end.getMonth() - k;
     const day = d => new Date(y, m, Math.min(d, 28));
     const month = new Date(y, m, 1).getMonth();
-    add(day(1), "RENT - MAPLE COURT APARTMENTS", 1850);
+    add(day(1), "RENT - MAPLE COURT APARTMENTS SAN FRANCISCO CA", 1850);
     add(day(4), "PG&E WEB ONLINE", between(70, month >= 5 && month <= 8 ? 175 : 115));
     add(day(9), "COMCAST XFINITY 8005551234", 79.99);
     add(day(12), "VERIZON WIRELESS PAYMENTS", 85.0);
     add(day(15), "NETFLIX.COM", 15.49);
     add(day(17), "SPOTIFY USA", 11.99);
-    add(day(2), "CRUNCH FITNESS #2231", 29.99);
+    add(day(2), "CRUNCH FITNESS #2231 SAN FRANCISCO CA", 29.99);
     add(day(20), "PAYMENT THANK YOU - WEB", 0.01); // ignored as transfer
     const nGroc = 6 + Math.floor(rnd() * 4);
-    for (let i = 0; i < nGroc; i++) add(day(1 + Math.floor(rnd() * 28)), pick(["TRADER JOE'S #112", "SAFEWAY #1834", "WHOLEFDS MKT 10234", "SAFEWAY #1834", "TRADER JOE'S #112"]), between(24, 148));
+    for (let i = 0; i < nGroc; i++) add(day(1 + Math.floor(rnd() * 28)), pick(["TRADER JOE'S #112 SAN FRANCISCO CA", "SAFEWAY #1834 SAN FRANCISCO CA", "WHOLEFDS MKT 10234 OAKLAND CA", "SAFEWAY #1834 SAN FRANCISCO CA", "TRADER JOE'S #112 SAN FRANCISCO CA", "BERKELEY BOWL BERKELEY CA"]), between(24, 148));
     const nDine = 10 + Math.floor(rnd() * 7);
     for (let i = 0; i < nDine; i++) {
-      const p = pick(["STARBUCKS STORE 05521", "STARBUCKS STORE 05521", "CHIPOTLE 1622", "SQ *TARTINE BAKERY", "DOORDASH*THAI SPICE", "UBER EATS PENDING", "TST* NOPA KITCHEN", "SWEETGREEN MISSION"]);
+      const p = pick(["STARBUCKS STORE 05521 SAN FRANCISCO CA", "STARBUCKS STORE 05521 SAN FRANCISCO CA", "CHIPOTLE 1622 SAN FRANCISCO CA", "SQ *TARTINE BAKERY SAN FRANCISCO CA", "DOORDASH*THAI SPICE", "UBER EATS PENDING", "TST* NOPA KITCHEN SAN FRANCISCO CA", "SWEETGREEN MISSION SAN FRANCISCO CA", "TST* PIZZAIOLO OAKLAND CA", "SQ *BLUE BOTTLE COFFEE OAKLAND CA"]);
       const amt = /STARBUCKS/.test(p) ? between(4.5, 9) : /NOPA/.test(p) ? between(55, 120) : between(12, 42);
       add(day(1 + Math.floor(rnd() * 28)), p, amt);
     }
     const nTrans = 4 + Math.floor(rnd() * 4);
     for (let i = 0; i < nTrans; i++) {
-      const p = pick(["SHELL OIL 57444", "UBER *TRIP HELP.UBER.COM", "CLIPPER SERVICE", "LYFT *RIDE", "SFMTA PARKING METER"]);
+      const p = pick(["SHELL OIL 57444 DALY CITY CA", "UBER *TRIP HELP.UBER.COM", "CLIPPER SERVICE", "LYFT *RIDE", "SFMTA PARKING METER SAN FRANCISCO CA"]);
       add(day(1 + Math.floor(rnd() * 28)), p, /SHELL/.test(p) ? between(38, 62) : between(6, 28));
     }
     const nShop = 3 + Math.floor(rnd() * 4) + (month === 11 ? 6 : 0) + (month === 10 ? 3 : 0);
-    for (let i = 0; i < nShop; i++) add(day(1 + Math.floor(rnd() * 28)), pick(["AMAZON.COM*2K4HY7", "AMZN MKTP US*1A2B3", "TARGET 00012345", "AMAZON.COM*9X8C1", "REI #45 SAN FRANCISCO", "UNIQLO UNION SQ"]), between(11, month === 11 ? 160 : 95));
-    if (rnd() < 0.6) add(day(8 + Math.floor(rnd() * 15)), pick(["CVS/PHARMACY #9921", "WALGREENS #3021"]), between(9, 46));
-    if (rnd() < 0.5) add(day(10 + Math.floor(rnd() * 15)), pick(["AMC METREON 16", "TICKETMASTER", "STEAMGAMES.COM"]), between(18, 120));
-    if (rnd() < 0.35) add(day(5 + Math.floor(rnd() * 20)), "GREAT CLIPS BARBER", between(28, 45));
-    if (month === 5) { add(day(3), "UNITED AIRLINES", 486.4); add(day(18), "AIRBNB * HMQ2X", 912.0); add(day(20), "UBER *TRIP HELP.UBER.COM", 41.2); }
-    if (month === 11) add(day(10), "DELTA AIR LINES", 382.6);
-    if (month === 2) add(day(14), "BRIGHT SMILE DENTAL", 240.0);
-    if (month === 8) add(day(22), "MARRIOTT PORTLAND", 418.75);
+    for (let i = 0; i < nShop; i++) add(day(1 + Math.floor(rnd() * 28)), pick(["AMAZON.COM*2K4HY7", "AMZN MKTP US*1A2B3", "TARGET 00012345 DALY CITY CA", "AMAZON.COM*9X8C1", "REI #45 SAN FRANCISCO CA", "UNIQLO UNION SQ SAN FRANCISCO CA"]), between(11, month === 11 ? 160 : 95));
+    if (rnd() < 0.6) add(day(8 + Math.floor(rnd() * 15)), pick(["CVS/PHARMACY #9921 SAN FRANCISCO CA", "WALGREENS #3021 SAN FRANCISCO CA"]), between(9, 46));
+    if (rnd() < 0.5) add(day(10 + Math.floor(rnd() * 15)), pick(["AMC METREON 16 SAN FRANCISCO CA", "TICKETMASTER", "STEAMGAMES.COM"]), between(18, 120));
+    if (rnd() < 0.35) add(day(5 + Math.floor(rnd() * 20)), "GREAT CLIPS BARBER OAKLAND CA", between(28, 45));
+    // a few trips, so the map has somewhere to go
+    if (month === 5) {
+      add(day(3), "UNITED AIRLINES", 486.4); add(day(18), "AIRBNB * HMQ2X", 912.0);
+      add(day(19), "LEONARD'S BAKERY HONOLULU HI", 18.5); add(day(20), "TST* DUKE'S WAIKIKI HONOLULU HI", 112.3);
+      add(day(21), "ABC STORES #38 HONOLULU HI", 46.2); add(day(22), "MAUI BREWING CO KIHEI HI", 74.0);
+      add(day(23), "SHELL OIL 12093 KAHULUI HI", 52.1);
+    }
+    if (month === 11) {
+      add(day(10), "DELTA AIR LINES", 382.6); add(day(19), "JOE'S PIZZA NEW YORK NY", 14.75);
+      add(day(20), "TST* KATZ'S DELICATESSEN NEW YORK NY", 48.9); add(day(20), "MOMA DESIGN STORE NEW YORK NY", 86.0);
+      add(day(21), "MTA*NYCT PAYGO NEW YORK NY", 34.0); add(day(21), "SQ *SMORGASBURG BROOKLYN NY", 31.5);
+    }
+    if (month === 2) {
+      add(day(6), "SOUTHWEST AIRLINES", 214.0); add(day(7), "IN-N-OUT BURGER LOS ANGELES CA", 16.4);
+      add(day(8), "GRAND CENTRAL MARKET LOS ANGELES CA", 38.2); add(day(8), "THE BROAD MUSEUM LOS ANGELES CA", 25.0);
+      add(day(9), "ARCO #82731 SANTA MONICA CA", 48.6);
+    }
+    if (month === 8) {
+      add(day(22), "MARRIOTT PORTLAND PORTLAND OR", 418.75); add(day(22), "POWELL'S BOOKS PORTLAND OR", 63.4);
+      add(day(23), "BLUE STAR DONUTS PORTLAND OR", 12.0); add(day(23), "TST* PINE STATE BISCUITS PORTLAND OR", 27.8);
+      add(day(24), "CHEVRON 0091 EUGENE OR", 55.3); add(day(25), "PIKE PLACE CHOWDER SEATTLE WA", 29.4);
+    }
   }
   return rows;
 }
@@ -500,6 +640,8 @@ const state = {
   from: null, to: null,
   drill: null,
   merchant: null,
+  place: null,          // { type: "state"|"city"|"online"|"none", key, label }
+  mapMode: store.get("wiw:mapMode", "city"),
   search: "",
   sort: { key: "date", dir: -1 },
   limit: 25,
@@ -513,7 +655,9 @@ function setData(txns, isSample) {
   state.txns = txns.filter(t => { const k = t.date + "|" + t.desc + "|" + t.amount; if (seen.has(k)) return false; seen.add(k); return true; })
                    .sort((a, b) => a.date < b.date ? 1 : -1);
   state.isSample = isSample;
-  state.drill = null; state.merchant = null; state.search = ""; state.limit = 25;
+  // data saved by an older version has no locations yet
+  state.txns.forEach(t => { if (t.loc === undefined) t.loc = parseLocation(t.desc).loc; });
+  state.drill = null; state.merchant = null; state.place = null; state.mapT = null; state.search = ""; state.limit = 25;
   document.getElementById("search").value = "";
   if (!isSample) store.set("wiw:data", state.txns); else store.del("wiw:data");
   assignColors();
@@ -552,11 +696,19 @@ function setRange(r) {
   render();
 }
 function inRange(t) { const m = t.date.slice(0, 7); return (!state.from || m >= state.from) && (!state.to || m <= state.to); }
-function filtered({ ignoreDrill = false, ignoreMerchant = false } = {}) {
+function placeMatch(t, p) {
+  const l = t.loc;
+  if (p.type === "none") return !l;
+  if (p.type === "online") return !!(l && l.online);
+  if (!l || l.online) return false;
+  return p.type === "state" ? l.st === p.key : placeKey(l) === p.key;
+}
+function filtered({ ignoreDrill = false, ignoreMerchant = false, ignorePlace = false } = {}) {
   return state.txns.filter(t => {
     const c = catOf(t);
     if (state.off.has(c)) return false;
     if (!inRange(t)) return false;
+    if (!ignorePlace && state.place && !placeMatch(t, state.place)) return false;
     if (!ignoreDrill && state.drill && c !== state.drill) return false;
     if (!ignoreMerchant && state.merchant && t.merchant !== state.merchant) return false;
     return true;
@@ -592,6 +744,7 @@ function render() {
   renderStats();
   renderTreemap();
   renderMerchants();
+  renderMap();
   renderMonthly();
   renderTable();
   document.getElementById("sample-banner").hidden = !state.isSample;
@@ -613,6 +766,7 @@ function renderFilters() {
   const af = [];
   if (state.drill) af.push(`<span class="active-filter">Category: ${esc(state.drill)}<button type="button" data-clear="drill" aria-label="Clear category">×</button></span>`);
   if (state.merchant) af.push(`<span class="active-filter">Merchant: ${esc(state.merchant)}<button type="button" data-clear="merchant" aria-label="Clear merchant">×</button></span>`);
+  if (state.place) af.push(`<span class="active-filter">Place: ${esc(state.place.label)}<button type="button" data-clear="place" aria-label="Clear place">×</button></span>`);
   document.getElementById("active-filters").innerHTML = af.join("");
 }
 
@@ -624,7 +778,8 @@ function renderStats() {
   const top = [...byCat].sort((a, b) => b[1] - a[1])[0];
   const allTotal = d3.sum([...byCat.values()]);
   const biggest = d3.greatest(data, d => d.amount);
-  const scope = state.merchant ? `at ${esc(state.merchant)}` : state.drill ? `on ${esc(state.drill)}` : "in total";
+  const scope = (state.merchant ? `at ${esc(state.merchant)}` : state.drill ? `on ${esc(state.drill)}` : "in total")
+    + (state.place ? ` · ${esc(state.place.label)}` : "");
   document.getElementById("stats").innerHTML = [
     stat("Spent", money0.format(total), `${scope}, ${nMonths} month${nMonths === 1 ? "" : "s"}`),
     stat("Per month", money0.format(total / nMonths), "average"),
@@ -704,6 +859,128 @@ function renderMerchants() {
       <span class="name">${esc(m)}</span><span class="amt">${money0.format(o.amount)}</span>
       <span class="bar"><i style="width:${(o.amount / max * 100).toFixed(1)}%;background:${colorOf(o.cat)}"></i></span>
       <span class="meta">${esc(o.cat)} · ${o.n} purchase${o.n === 1 ? "" : "s"} · avg ${money0.format(o.amount / o.n)}</span></button>`).join("");
+}
+
+const STATE_SHAPES = GEO.states;
+function renderMap() {
+  document.querySelectorAll("#map-mode button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === state.mapMode)));
+  const el = document.getElementById("map"), list = document.getElementById("places");
+  const scaleEl = document.getElementById("map-scale"), cov = document.getElementById("map-coverage");
+  const data = filtered({ ignorePlace: true });
+  const total = d3.sum(data, d => d.amount);
+  if (!STATE_SHAPES.length) { el.innerHTML = `<div class="empty">Map data didn't load. Keep geo-data.js next to index.html.</div>`; list.innerHTML = ""; scaleEl.innerHTML = ""; cov.textContent = ""; return; }
+  const summarize = v => {
+    const cats = d3.rollups(v, w => d3.sum(w, d => d.amount), catOf).sort((a, b) => b[1] - a[1]);
+    return { amount: d3.sum(v, d => d.amount), n: v.length, topCat: cats[0]?.[0], loc: v[0].loc };
+  };
+  const placed = data.filter(t => t.loc && !t.loc.online);
+  const byState = d3.rollup(placed, summarize, t => t.loc.st);
+  const byCity = d3.rollup(placed, summarize, t => placeKey(t.loc));
+  const online = data.filter(t => t.loc && t.loc.online), none = data.filter(t => !t.loc);
+  const placedSum = d3.sum(placed, d => d.amount);
+  cov.innerHTML = total ? `<b class="num" style="color:var(--ink)">${pct(placedSum / total)}</b> of this spending has a location. Online purchases and ones with no place in the description are listed below the map.` : "";
+
+  const W = GEO.width, H = GEO.height;
+  const svg = d3.create("svg").attr("viewBox", `0 0 ${W} ${H}`).attr("role", "img")
+    .attr("aria-label", state.mapMode === "state" ? "US map shaded by spending per state" : "US map with a circle for each city, sized by spending");
+  const sel = state.place;
+  const tipFor = (label, o) => `<div class="t">${esc(label)}</div>${tipRow("Spent", money2.format(o.amount))}${tipRow("Share of shown", pct(o.amount / (total || 1)))}${tipRow("Transactions", o.n)}${o.topCat ? tipRow("Mostly", esc(o.topCat)) : ""}`;
+  const clickPlace = p => { state.place = sel && sel.type === p.type && sel.key === p.key ? null : p; render(); };
+
+  // state fills: five classes on a log scale, since a home state usually dwarfs the rest
+  const vals = [...byState.values()].map(o => o.amount).filter(v => v > 0);
+  const lo = d3.min(vals) || 1, hi = d3.max(vals) || 1;
+  const breaks = hi / lo < 2 ? [] : d3.range(1, 5).map(i => Math.pow(10, Math.log10(lo) + (Math.log10(hi) - Math.log10(lo)) * i / 5));
+  const cls = v => !v ? 0 : breaks.length ? 1 + d3.bisectRight(breaks, v) : 5;
+  const stateFill = s => state.mapMode === "state" ? `var(--q${cls(byState.get(s.code)?.amount)})` : "var(--q0)";
+
+  const root = svg.append("g");
+  root.append("g").selectAll("path").data(STATE_SHAPES).join("path")
+    .attr("class", s => "st" + (sel && sel.type === "state" && sel.key === s.code ? " sel" : ""))
+    .attr("d", s => s.d).attr("fill", stateFill)
+    .on("mousemove", (e, s) => { const o = byState.get(s.code); showTip(e, o ? tipFor(s.name, o) : `<div class="t">${esc(s.name)}</div><div class="row"><span>No spending here</span></div>`); })
+    .on("mouseleave", hideTip)
+    .on("click", (e, s) => { if (byState.has(s.code)) clickPlace({ type: "state", key: s.code, label: s.name }); });
+
+  let ranked, circles = null, labels = null, labelPts = [];
+  if (state.mapMode === "city") {
+    const centroid = new Map(STATE_SHAPES.map(s => [s.code, [s.cx, s.cy]]));
+    const pts = [...byCity].map(([k, o]) => {
+      const l = o.loc, exact = !!l.city;
+      const [x, y] = exact ? [l.x, l.y] : (centroid.get(l.st) || [0, 0]);
+      return { k, o, x, y, exact, label: exact ? `${l.city}, ${l.st}` : `Somewhere in ${STATE_NAMES.get(l.st) || l.st}` };
+    }).sort((a, b) => b.o.amount - a.o.amount);
+    const r = d3.scaleSqrt().domain([0, d3.max(pts, p => p.o.amount) || 1]).range([0, 34]);
+    pts.forEach(p => { p.br = Math.max(4, r(p.o.amount)); });
+    circles = root.append("g").selectAll("circle").data(pts.slice().reverse()).join("circle")
+      .attr("class", "city").attr("cx", p => p.x).attr("cy", p => p.y).attr("r", p => p.br)
+      .attr("fill", "var(--s1)").attr("fill-opacity", p => sel && sel.key !== p.k && sel.key !== p.o.loc.st ? 0.25 : 0.75)
+      .attr("stroke", p => sel && sel.key === p.k ? "var(--ink)" : "var(--surface)").attr("stroke-width", 2)
+      .attr("stroke-dasharray", p => p.exact ? null : "3 2")
+      .on("mousemove", (e, p) => showTip(e, tipFor(p.label, p.o) + (p.exact ? "" : `<div class="row" style="margin-top:4px"><span>City not given; drawn at the state's center</span></div>`)))
+      .on("mouseleave", hideTip)
+      .on("click", (e, p) => clickPlace(p.exact ? { type: "city", key: p.k, label: p.label } : { type: "state", key: p.o.loc.st, label: STATE_NAMES.get(p.o.loc.st) || p.o.loc.st }));
+    labelPts = pts.filter(p => p.exact).slice(0, 12);
+    const selPt = sel && pts.find(p => p.k === sel.key);
+    if (selPt) labelPts = [selPt, ...labelPts.filter(p => p !== selPt)]; // the selected city is labelled first, always
+    labels = root.append("g").selectAll("text").data(labelPts).join("text").attr("class", "lbl").text(p => p.o.loc.city);
+    ranked = pts.map(p => ({ label: p.label, o: p.o, place: p.exact ? { type: "city", key: p.k, label: p.label, x: p.x, y: p.y } : { type: "state", key: p.o.loc.st, label: STATE_NAMES.get(p.o.loc.st) } }));
+    scaleEl.innerHTML = `<svg width="64" height="24" aria-hidden="true"><circle cx="12" cy="12" r="5" fill="var(--s1)" fill-opacity=".75"/><circle cx="42" cy="12" r="11" fill="var(--s1)" fill-opacity=".75"/></svg> Circle area = dollars spent · Pinch or Ctrl+scroll to zoom, drag to pan · <svg width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="var(--ink-2)" stroke-dasharray="3 2"/></svg> city unknown`;
+  } else {
+    ranked = [...byState].sort((a, b) => b[1].amount - a[1].amount).map(([st, o]) => ({ label: STATE_NAMES.get(st) || st, o, place: { type: "state", key: st, label: STATE_NAMES.get(st) || st } }));
+    const edges = [lo, ...breaks, hi];
+    scaleEl.innerHTML = vals.length ? `<span>${moneyShort(lo)}</span><span class="steps">${(breaks.length ? [1, 2, 3, 4, 5] : [5]).map(i => `<i style="background:var(--q${i})" title="${breaks.length ? `${moneyShort(edges[i - 1])}–${moneyShort(edges[i])}` : ""}"></i>`).join("")}</span><span>${moneyShort(hi)}</span><span style="display:inline-flex;gap:6px;align-items:center;margin-left:8px"><i style="width:12px;height:10px;border-radius:2px;background:var(--q0);display:inline-block;outline:1px solid var(--line)"></i>none</span>` : "";
+  }
+
+  // zoom: circles and labels keep their on-screen size, so zooming in pulls nearby cities apart
+  const applyZoom = t => {
+    root.attr("transform", t);
+    if (!circles) return;
+    const k = t.k;
+    circles.attr("r", p => p.br / k);
+    // labels stay 13px on screen whatever the map's rendered width
+    const px = W / (el.clientWidth || W) / k;
+    const placedBoxes = [];
+    labels.each(function (p) {
+      const fs = 13 * px, w = p.o.loc.city.length * fs * 0.6, h = fs;
+      const x = p.x + p.br / k + 4 * px, y = p.y + fs * 0.35;
+      const box = [x, y - h, x + w, y + 2 * px];
+      const sx0 = t.applyX(box[0]), sx1 = t.applyX(box[2]), sy0 = t.applyY(box[1]);
+      const hit = (sel && p.k === sel.key) ? false : sx1 > W || sx0 < 0 || sy0 < 0 || placedBoxes.some(b => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])
+        // don't write over another city's circle either
+        || labelPts.some(q => q !== p && Math.hypot(Math.max(box[0] - q.x, 0, q.x - box[2]), Math.max(box[1] - q.y, 0, q.y - box[3])) < q.br / k);
+      d3.select(this).attr("x", x).attr("y", y).attr("font-size", fs).attr("stroke-width", 3 * px).attr("display", hit ? "none" : null);
+      if (!hit) placedBoxes.push(box);
+    });
+  };
+  const zoom = d3.zoom().scaleExtent([1, 40]).translateExtent([[0, 0], [W, H]])
+    .filter(e => e.type === "wheel" ? (e.ctrlKey || e.metaKey) : e.type.startsWith("touch") ? e.touches.length > 1 : !e.button)
+    .on("zoom", e => { state.mapT = e.transform; hideTip(); applyZoom(e.transform); });
+  svg.call(zoom).on("dblclick.zoom", null).style("touch-action", "pan-y");
+  svg.call(zoom.transform, state.mapT || d3.zoomIdentity);
+  const ctl = document.createElement("div");
+  ctl.className = "zoom-ctl";
+  ctl.innerHTML = `<button type="button" data-z="in" aria-label="Zoom in">+</button><button type="button" data-z="out" aria-label="Zoom out">−</button>${state.mapT && state.mapT.k > 1.01 ? `<button type="button" data-z="reset">Reset</button>` : ""}`;
+  ctl.addEventListener("click", e => {
+    const z = e.target.closest("[data-z]")?.dataset.z; if (!z) return;
+    const t = svg.transition().duration(matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 300);
+    if (z === "reset") t.call(zoom.transform, d3.zoomIdentity).on("end", renderMap);
+    else t.call(zoom.scaleBy, z === "in" ? 2 : 0.5).on("end", renderMap);
+  });
+  el.replaceChildren(svg.node(), ctl);
+  applyZoom(state.mapT || d3.zoomIdentity); // again, now that the svg has a rendered width
+
+  const max = d3.max(ranked, d => d.o.amount) || 1;
+  const row = (label, o, p, color) => `<button type="button" class="mrow" data-place='${esc(JSON.stringify(p))}' aria-pressed="${!!(sel && sel.type === p.type && sel.key === p.key)}"
+      style="${sel && !(sel.type === p.type && sel.key === p.key) ? "opacity:.5" : ""}">
+      <span class="name">${esc(label)}</span><span class="amt">${money0.format(o.amount)}</span>
+      <span class="bar"><i style="width:${(o.amount / max * 100).toFixed(1)}%;background:${color}"></i></span>
+      <span class="meta">${o.n} purchase${o.n === 1 ? "" : "s"}${o.topCat ? ` · mostly ${esc(o.topCat)}` : ""} · ${pct(o.amount / (total || 1))}</span></button>`;
+  const extra = [];
+  if (online.length) extra.push(row("Online", summarize(online), { type: "online", key: "online", label: "Online" }, "var(--other)"));
+  if (none.length) extra.push(row("No location given", summarize(none), { type: "none", key: "none", label: "No location" }, "var(--other)"));
+  list.innerHTML = (ranked.length ? ranked.slice(0, 8).map(d => row(d.label, d.o, d.place, "var(--s1)")).join("") : `<div class="muted">No purchases with a place in this range.</div>`)
+    + (extra.length ? `<div class="divider"></div>${extra.join("")}` : "");
 }
 
 function renderMonthly() {
@@ -811,13 +1088,32 @@ document.getElementById("cat-chips").addEventListener("click", e => {
 });
 document.getElementById("active-filters").addEventListener("click", e => {
   const b = e.target.closest("[data-clear]"); if (!b) return;
-  if (b.dataset.clear === "drill") { state.drill = null; state.merchant = null; } else state.merchant = null;
+  if (b.dataset.clear === "drill") { state.drill = null; state.merchant = null; }
+  else if (b.dataset.clear === "place") state.place = null;
+  else state.merchant = null;
   render();
 });
 document.getElementById("crumbs").addEventListener("click", e => { if (e.target.closest("[data-crumb]")) { state.drill = null; state.merchant = null; render(); } });
 document.getElementById("merchants").addEventListener("click", e => {
   const b = e.target.closest(".mrow"); if (!b) return;
   state.merchant = state.merchant === b.dataset.merchant ? null : b.dataset.merchant; render();
+});
+document.getElementById("map-mode").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  state.mapMode = b.dataset.mode; store.set("wiw:mapMode", state.mapMode); hideTip(); renderMap();
+});
+document.getElementById("places").addEventListener("click", e => {
+  const b = e.target.closest("[data-place]"); if (!b) return;
+  const p = JSON.parse(b.dataset.place);
+  const same = state.place && state.place.type === p.type && state.place.key === p.key;
+  state.place = same ? null : p;
+  // picking a city from the list also zooms the map to it
+  if (!same && p.x != null) {
+    const k = Math.max(8, state.mapT ? state.mapT.k : 1), W = GEO.width, H = GEO.height;
+    const tx = Math.min(0, Math.max(W - W * k, W / 2 - k * p.x)), ty = Math.min(0, Math.max(H - H * k, H / 2 - k * p.y));
+    state.mapT = d3.zoomIdentity.translate(tx, ty).scale(k);
+  }
+  render();
 });
 document.getElementById("search").addEventListener("input", e => { state.search = e.target.value; state.limit = 25; renderTable(); });
 document.getElementById("txn-table").addEventListener("click", e => {
@@ -883,6 +1179,8 @@ function openMapping(guess, error) {
   document.getElementById("map-amount").innerHTML = opts(guess?.amount, true);
   document.getElementById("map-debit").innerHTML = opts(guess?.debit, true);
   document.getElementById("map-category").innerHTML = opts(guess?.category, true);
+  document.getElementById("map-city").innerHTML = opts(guess?.city, true);
+  document.getElementById("map-state").innerHTML = opts(guess?.state, true);
   document.getElementById("map-sign").value = guess?.sign || "neg";
   document.getElementById("import-file-name").textContent = pending ? `${pending.name} · ${pending.rows.length} rows` : "";
   document.getElementById("import-append").checked = false;
@@ -896,7 +1194,7 @@ function openMapping(guess, error) {
   if (!dlg.open) dlg.showModal();
 }
 function currentMap() {
-  return { date: v("map-date"), desc: v("map-desc"), amount: v("map-amount"), debit: v("map-debit"), category: v("map-category"), sign: v("map-sign") };
+  return { date: v("map-date"), desc: v("map-desc"), amount: v("map-amount"), debit: v("map-debit"), category: v("map-category"), city: v("map-city"), state: v("map-state"), sign: v("map-sign") };
   function v(id) { return document.getElementById(id).value; }
 }
 function updateCount() {
@@ -930,7 +1228,7 @@ const saved = store.get("wiw:data", null);
 if (Array.isArray(saved) && saved.length) setData(saved, false); else loadSample();
 
 let rt;
-new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(() => { renderTreemap(); renderMonthly(); }, 120); }).observe(document.querySelector(".wrap"));
+new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(() => { renderTreemap(); renderMonthly(); renderMap(); }, 120); }).observe(document.querySelector(".wrap"));
 })();
 </script>
 </body>
